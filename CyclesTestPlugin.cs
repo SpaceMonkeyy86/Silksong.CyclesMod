@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Threading;
 using BepInEx;
 using BepInEx.Configuration;
 using HarmonyLib;
@@ -23,7 +24,7 @@ public partial class CyclesTestPlugin : BaseUnityPlugin
     private ConfigEntry<bool> forceClearMemory;
     private ConfigEntry<float> clearMemoryDelay;
 
-    private float oldTimeScale;
+    private TimeManager.TimeControlInstance? timeControl;
 
     private void Awake()
     {
@@ -50,7 +51,7 @@ public partial class CyclesTestPlugin : BaseUnityPlugin
         clearMemoryDelay = Config.Bind(
             "General",
             "Clear Memory Delay",
-            0.5f,
+            0f,
             "Minimum time in seconds that clearing memory will take."
         );
 
@@ -66,6 +67,7 @@ public partial class CyclesTestPlugin : BaseUnityPlugin
         CodeMatcher matcher = new(instructions, generator);
 
         Label afterWaitLabel = generator.DefineLabel();
+        Label afterFirstYield = generator.DefineLabel();
 
         matcher.MatchStartForward(new CodeMatch(OpCodes.Leave));
         Label returnLabel = (Label)matcher.Operand;
@@ -83,10 +85,9 @@ public partial class CyclesTestPlugin : BaseUnityPlugin
 
         static void FreezeTimeScale()
         {
-            instance.oldTimeScale = Time.timeScale;
             if (instance.normalizeLoads.Value)
             {
-                Time.timeScale = 0f;
+                instance.timeControl = new TimeManager.TimeControlInstance(0f, TimeManager.TimeControlInstance.Type.Multiplicative);
             }
         }
 
@@ -100,9 +101,52 @@ public partial class CyclesTestPlugin : BaseUnityPlugin
         matcher.InsertAndAdvance(new CodeInstruction(OpCodes.Call, ((Delegate)FreezeTimeScale).Method));
 
         /*
+         * RecordBeginTime(SceneLoad.Phases.StartCall);
+         * yield return null;
+         * <-- BEGIN INJECTED -->
+         * yield return null;
+         * <-- END INJECTED -->
+         * RecordEndTime(SceneLoad.Phases.StartCall);
+         */
+
+        matcher.Start();
+        matcher.MatchStartForward(new CodeMatch(OpCodes.Switch));
+        Label[] labels = (Label[])matcher.Operand;
+        int stateValue = labels.Length;
+        matcher.Operand = (Label[])[.. labels, afterFirstYield];
+
+        matcher.MatchStartForward(
+            new CodeMatch(OpCodes.Ldarg_0),
+            new CodeMatch(OpCodes.Ldc_I4_M1),
+            new CodeMatch(OpCodes.Stfld, stateField),
+            new CodeMatch(OpCodes.Ldloc_2),
+            new CodeMatch(OpCodes.Ldc_I4_7),
+            new CodeMatch(OpCodes.Call, typeof(SceneLoad).GetMethod(nameof(SceneLoad.RecordEndTime)))
+        );
+        Label oldLabel = matcher.Instruction.labels[0];
+        int oldState = labels.IndexOf(oldLabel);
+        matcher.Insert(
+            new CodeInstruction(OpCodes.Ldarg_0),
+            new CodeInstruction(OpCodes.Ldnull),
+            new CodeInstruction(OpCodes.Stfld, currentField),
+            new CodeInstruction(OpCodes.Ldarg_0),
+            new CodeInstruction(OpCodes.Ldc_I4, oldState),
+            new CodeInstruction(OpCodes.Stfld, stateField),
+            new CodeInstruction(OpCodes.Ldc_I4_1),
+            new CodeInstruction(OpCodes.Stloc_0),
+            new CodeInstruction(OpCodes.Leave, returnLabel)
+        );
+        matcher.Instruction.labels.Add(afterFirstYield);
+        matcher.MatchStartBackwards(new CodeMatch(OpCodes.Stfld, stateField));
+        matcher.MatchStartBackwards(new CodeMatch(OpCodes.Stfld, stateField));
+        matcher.Advance(-1);
+        matcher.SetInstruction(new CodeInstruction(OpCodes.Ldc_I4, stateValue));
+
+        /*
          * <-- BEGIN INJECTED -->
          * ResetTimeScale();
-         * if (GetLoadDelay() > 0f) {
+         * if (GetLoadDelay() > 0f)
+         * {
          *     yield return new WaitForSecondsRealtime(GetLoadDelay());
          * }
          * <-- END INJECTED -->
@@ -111,13 +155,13 @@ public partial class CyclesTestPlugin : BaseUnityPlugin
 
         static void ResetTimeScale()
         {
-            Time.timeScale = instance.oldTimeScale;
+            instance.timeControl?.Release();
         }
 
         matcher.Start();
         matcher.MatchStartForward(new CodeMatch(OpCodes.Switch));
-        Label[] labels = (Label[])matcher.Operand;
-        int stateValue = labels.Length;
+        labels = (Label[])matcher.Operand;
+        stateValue = labels.Length;
         matcher.Operand = (Label[])[.. labels, afterWaitLabel];
 
         matcher.MatchStartForward(
@@ -146,6 +190,11 @@ public partial class CyclesTestPlugin : BaseUnityPlugin
         static float GetLoadDelay()
         {
             return instance.extraLoadTime.Value;
+        }
+
+        foreach (CodeInstruction instruction in matcher.InstructionEnumeration())
+        {
+            instance.Logger.LogDebug(instruction);
         }
 
         return matcher.InstructionEnumeration();
@@ -178,9 +227,48 @@ public partial class CyclesTestPlugin : BaseUnityPlugin
             // Simulate slow Start() methods of components in the scene
             while (Time.realtimeSinceStartup < endTime)
             {
-                float timeLeft = Time.realtimeSinceStartup - endTime;
-                yield return new WaitForSecondsRealtime(Mathf.Min(Random.Range(0f, 0.3f), timeLeft));
+                float timeLeft = endTime - Time.realtimeSinceStartup;
+                float delay = Mathf.Min(Random.Range(0f, 0.3f), timeLeft);
+                float nextYieldTime = Time.realtimeSinceStartup + delay;
+
+                while (Time.realtimeSinceStartup < nextYieldTime)
+                {
+                    // Busy loop
+                    Thread.SpinWait(1);
+                }
+
+                yield return null;
             }
         }
     }
+
+    #region logging
+
+    [HarmonyPostfix, HarmonyPatch(typeof(SceneLoad), nameof(SceneLoad.RecordBeginTime))]
+    private static void SceneLoad_RecordBeginTime(SceneLoad __instance, SceneLoad.Phases phase)
+    {
+        if (phase == SceneLoad.Phases.FetchBlocked)
+        {
+            instance.Logger.LogDebug($"Begin scene load for {__instance.TargetSceneName}");
+        }
+        instance.Logger.LogDebug($"Begin {phase} at {Time.realtimeSinceStartup}");
+    }
+
+    [HarmonyPostfix, HarmonyPatch(typeof(SceneLoad), nameof(SceneLoad.RecordEndTime))]
+    private static void SceneLoad_RecordEndTime(SceneLoad __instance, SceneLoad.Phases phase)
+    {
+        instance.Logger.LogDebug($"End {phase} at {Time.realtimeSinceStartup} (took {__instance.GetDuration(phase)})");
+        if (phase == SceneLoad.Phases.FetchBlocked)
+        {
+            instance.Logger.LogDebug($"Begin scene load for {__instance.TargetSceneName}");
+        }
+    }
+
+    [HarmonyPrefix, HarmonyPatch(typeof(PlayMakerFSM), nameof(PlayMakerFSM.Start))]
+    private static void PlayMakerFSM_Start()
+    {
+        instance.Logger.LogDebug($"FSM Start() at {Time.realtimeSinceStartup}");
+    }
+
+    #endregion
 }
