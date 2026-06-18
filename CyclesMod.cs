@@ -12,7 +12,7 @@ using OpCodes = System.Reflection.Emit.OpCodes;
 namespace Silksong.CyclesMod;
 
 [HarmonyPatch]
-[BepInAutoPlugin(id: "com.spacemonkeyy.cyclestest")]
+[BepInAutoPlugin(id: "com.spacemonkeyy.cyclesmod")]
 public partial class CyclesMod : BaseUnityPlugin
 {
     private static CyclesMod instance;
