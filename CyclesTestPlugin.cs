@@ -3,13 +3,11 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Reflection.Emit;
-using System.Threading;
 using BepInEx;
 using BepInEx.Configuration;
 using HarmonyLib;
 using UnityEngine;
 using OpCodes = System.Reflection.Emit.OpCodes;
-using Random = UnityEngine.Random;
 
 namespace Silksong.CyclesTest;
 
@@ -22,7 +20,6 @@ public partial class CyclesTestPlugin : BaseUnityPlugin
     private ConfigEntry<bool> normalizeLoads;
     private ConfigEntry<float> extraLoadTime;
     private ConfigEntry<bool> forceClearMemory;
-    private ConfigEntry<float> clearMemoryDelay;
 
     private TimeManager.TimeControlInstance? timeControl;
 
@@ -47,12 +44,6 @@ public partial class CyclesTestPlugin : BaseUnityPlugin
             "Force Clear Memory",
             false,
             "Forces an extra load step which typically desyncs cycles."
-        );
-        clearMemoryDelay = Config.Bind(
-            "General",
-            "Clear Memory Delay",
-            0f,
-            "Minimum time in seconds that clearing memory will take."
         );
 
         Harmony harmony = new(Id);
@@ -215,36 +206,6 @@ public partial class CyclesTestPlugin : BaseUnityPlugin
         }
 
         return true;
-    }
-
-    [HarmonyPostfix, HarmonyPatch(typeof(SceneLoad), nameof(SceneLoad.TryClearMemory))]
-    private static IEnumerator SceneLoad_TryClearMemory(IEnumerator __result)
-    {
-        float endTime = Time.realtimeSinceStartup + instance.clearMemoryDelay.Value;
-
-        while (__result.MoveNext())
-        {
-            yield return __result.Current;
-        }
-
-        if (instance.clearMemoryDelay.Value > 0f)
-        {
-            // Simulate slow Start() methods of components in the scene
-            while (Time.realtimeSinceStartup < endTime)
-            {
-                float timeLeft = endTime - Time.realtimeSinceStartup;
-                float delay = Mathf.Min(Random.Range(0f, 0.3f), timeLeft);
-                float nextYieldTime = Time.realtimeSinceStartup + delay;
-
-                while (Time.realtimeSinceStartup < nextYieldTime)
-                {
-                    // Busy loop
-                    Thread.SpinWait(1);
-                }
-
-                yield return null;
-            }
-        }
     }
 
     #region logging
