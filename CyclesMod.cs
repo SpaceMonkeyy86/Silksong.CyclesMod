@@ -9,13 +9,13 @@ using HarmonyLib;
 using UnityEngine;
 using OpCodes = System.Reflection.Emit.OpCodes;
 
-namespace Silksong.CyclesTest;
+namespace Silksong.CyclesMod;
 
 [HarmonyPatch]
 [BepInAutoPlugin(id: "com.spacemonkeyy.cyclestest")]
-public partial class CyclesTestPlugin : BaseUnityPlugin
+public partial class CyclesMod : BaseUnityPlugin
 {
-    private static CyclesTestPlugin instance;
+    private static CyclesMod instance;
 
     private ConfigEntry<bool> normalizeLoads;
     private ConfigEntry<float> extraLoadTime;
@@ -239,6 +239,8 @@ public partial class CyclesTestPlugin : BaseUnityPlugin
 
         instance.Logger.LogDebug("");
     }
+
+    // Extra verbose logging, meant for development only
 
     // [HarmonyPostfix, HarmonyPatch(typeof(SceneLoad), nameof(SceneLoad.RecordBeginTime))]
     // private static void SceneLoad_RecordBeginTime(SceneLoad __instance, SceneLoad.Phases phase)
