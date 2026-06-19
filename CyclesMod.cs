@@ -7,17 +7,16 @@ using BepInEx;
 using BepInEx.Configuration;
 using HarmonyLib;
 using UnityEngine;
-using OpCodes = System.Reflection.Emit.OpCodes;
 
 namespace Silksong.CyclesMod;
 
 [HarmonyPatch]
-[BepInAutoPlugin(id: "com.spacemonkeyy.cyclestest")]
+[BepInAutoPlugin(id: "com.spacemonkeyy.cyclesmod")]
 public partial class CyclesMod : BaseUnityPlugin
 {
     private static CyclesMod instance;
 
-    private ConfigEntry<bool> normalizeLoads;
+    private ConfigEntry<bool> normalizeCycles;
     private ConfigEntry<float> extraLoadTime;
     private ConfigEntry<bool> forceClearMemory;
 
@@ -27,9 +26,9 @@ public partial class CyclesMod : BaseUnityPlugin
     {
         instance = this;
 
-        normalizeLoads = Config.Bind(
+        normalizeCycles = Config.Bind(
             "General",
-            "Normalize Loads",
+            "Normalize Cycles",
             true,
             "Prevents cycles from starting until after the load has finished."
         );
@@ -76,7 +75,7 @@ public partial class CyclesMod : BaseUnityPlugin
 
         static void FreezeTimeScale()
         {
-            if (instance.normalizeLoads.Value)
+            if (instance.normalizeCycles.Value)
             {
                 instance.timeControl = new TimeManager.TimeControlInstance(0f, TimeManager.TimeControlInstance.Type.Multiplicative);
             }
@@ -105,7 +104,7 @@ public partial class CyclesMod : BaseUnityPlugin
 
         static bool NormalizeLoadsEnabled()
         {
-            return instance.normalizeLoads.Value;
+            return instance.normalizeCycles.Value;
         }
 
         matcher.Start();
@@ -196,8 +195,8 @@ public partial class CyclesMod : BaseUnityPlugin
         return matcher.InstructionEnumeration();
     }
 
-    [HarmonyPrefix, HarmonyPatch(typeof(SceneLoad), nameof(SceneLoad.IsClearMemoryRequired))]
-    private static bool SceneLoad_IsClearMemoryRequired(ref bool __result)
+    [HarmonyPrefix, HarmonyPatch(typeof(SceneLoad), nameof(SceneLoad.IsUnloadAssetsRequired), MethodType.Getter)]
+    private static bool SceneLoad_IsUnloadAssetsRequired_Get(ref bool __result)
     {
         if (instance.forceClearMemory.Value)
         {
