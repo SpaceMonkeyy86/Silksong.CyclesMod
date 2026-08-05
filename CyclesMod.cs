@@ -85,7 +85,7 @@ public partial class CyclesMod : BaseUnityPlugin
         matcher.MatchEndForward(
             new CodeMatch(OpCodes.Ldloc_2),
             new CodeMatch(OpCodes.Ldc_I4_4),
-            new CodeMatch(OpCodes.Call, typeof(SceneLoad).GetMethod(nameof(SceneLoad.RecordEndTime)))
+            new CodeMatch(OpCodes.Call, typeof(SceneLoad).GetMethod(nameof(SceneLoad.RecordBeginTime)))
         );
         matcher.Advance(1);
         matcher.InsertAndAdvance(new CodeInstruction(OpCodes.Call, ((Delegate)FreezeTimeScale).Method));
@@ -158,6 +158,11 @@ public partial class CyclesMod : BaseUnityPlugin
             instance.timeControl?.Release();
         }
 
+        static float GetLoadDelay()
+        {
+            return instance.extraLoadTime.Value;
+        }
+
         matcher.Start();
         matcher.MatchStartForward(new CodeMatch(OpCodes.Switch));
         labels = (Label[])matcher.Operand;
@@ -186,11 +191,6 @@ public partial class CyclesMod : BaseUnityPlugin
             new CodeInstruction(OpCodes.Stloc_0),
             new CodeInstruction(OpCodes.Leave, returnLabel)
         );
-
-        static float GetLoadDelay()
-        {
-            return instance.extraLoadTime.Value;
-        }
 
         return matcher.InstructionEnumeration();
     }

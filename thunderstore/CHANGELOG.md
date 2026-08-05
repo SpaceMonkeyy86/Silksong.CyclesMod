@@ -1,5 +1,9 @@
 ## Changelog
 
+### v1.0.1
+
+- Fixed a bug where the game would pause slightly later in the load than intended.
+
 ### v1.0.0
 
 - Renamed to CyclesMod and published on Thunderstore and GitHub.
