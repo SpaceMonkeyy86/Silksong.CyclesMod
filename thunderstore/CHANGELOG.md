@@ -1,5 +1,9 @@
 ## Changelog
 
+### v1.0.2
+
+- Improved compatibility with room dupes to avoid breaking some major glitch techniques.
+
 ### v1.0.1
 
 - Fixed a bug where the game would pause slightly later in the load than intended.
