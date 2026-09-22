@@ -7,6 +7,7 @@ using BepInEx;
 using BepInEx.Configuration;
 using HarmonyLib;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace Silksong.CyclesMod;
 
@@ -75,10 +76,17 @@ public partial class CyclesMod : BaseUnityPlugin
 
         static void FreezeTimeScale()
         {
-            if (instance.normalizeCycles.Value)
+            if (NormalizeLoadsEnabled())
             {
                 instance.timeControl = new TimeManager.TimeControlInstance(0f, TimeManager.TimeControlInstance.Type.Multiplicative);
             }
+        }
+
+        static bool NormalizeLoadsEnabled()
+        {
+            // Alternative: count number of CustomSceneManager components to check if there is a room dupe
+            int sceneCount = SceneManager.loadedSceneCount - SceneAdditiveLoadConditional._additiveSceneLoads.Count;
+            return instance.normalizeCycles.Value && (sceneCount <= 1 || GameManager.instance.RespawningHero);
         }
 
         matcher.Start();
@@ -101,11 +109,6 @@ public partial class CyclesMod : BaseUnityPlugin
          * <-- END INJECTED -->
          * RecordEndTime(SceneLoad.Phases.StartCall);
          */
-
-        static bool NormalizeLoadsEnabled()
-        {
-            return instance.normalizeCycles.Value;
-        }
 
         matcher.Start();
         matcher.MatchStartForward(new CodeMatch(OpCodes.Switch));
